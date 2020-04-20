@@ -74,32 +74,25 @@ namespace CKAN.NetKAN.Transformers
                                 ?? _http.DownloadText(remoteUri);
 
                             var rootToken = JToken.Parse(remoteJson, new JsonLoadSettings { CommentHandling = CommentHandling.Ignore });
-
-                            if (rootToken.Type == JTokenType.Object)
+                            List<AvcVersion> remoteVersions =
+                                  rootToken.Type == JTokenType.Object ? new List<AvcVersion> { rootToken.ToObject<AvcVersion>() }
+                                : rootToken.Type == JTokenType.Array  ? rootToken.ToObject<List<AvcVersion>>()
+                                : null;
+                            if (remoteVersions == null)
                             {
-                                var remoteAvc = rootToken.ToObject<AvcVersion>();
-                                if (avc.version.CompareTo(remoteAvc.version) == 0)
-                                {
-                                    // Local AVC and Remote AVC describe the same version, prefer
-                                    Log.Info("Remote AVC version file describes same version as local AVC version file, using it preferrentially.");
-                                    avc = remoteAvc;
-                                }
+                                throw new Kraken($"Invalid root token type in remote AVC: {rootToken.Type}");
                             }
-                            else if (rootToken.Type == JTokenType.Array)
+                            var matchingVersions = remoteVersions.Where(v => v.version.CompareTo(avc.version) == 0).ToList();
+                            if (matchingVersions.Count > 1)
                             {
-                                var remoteAvcs = rootToken.ToObject<AvcVersion[]>();
-                                AvcVersion matchedVersion = null;
-                                foreach (var remoteAvc in remoteAvcs)
-                                {
-                                    if (avc.version.CompareTo(remoteAvc.version) != 0) continue;
-                                    if (matchedVersion != null) throw new InvalidOperationException("More than one matching version found in remote AVC file");
-                                    matchedVersion = remoteAvc;
-                                }
-                                if (matchedVersion == null) throw new InvalidOperationException("No matching version found in remote AVC file");
-                                avc = matchedVersion;
+                                throw new Kraken("More than one matching version found in remote AVC file");
                             }
-                            else
-                                throw new InvalidOperationException("Invalid root token in remote AVC: " + rootToken.Type.ToString());
+                            else if (matchingVersions.Count == 1)
+                            {
+                                // Local AVC and Remote AVC describe the same version, prefer
+                                Log.Info("Remote AVC version file describes same version as local AVC version file, using it preferentially.");
+                                avc = matchingVersions.First();
+                            }
                         }
                         catch (Exception e)
                         {
